@@ -11,13 +11,16 @@ extern "C" {
 }
 
 #define SCREEN_WIDTH	1750
-#define SCREEN_HEIGHT	700
+#define SCREEN_HEIGHT	900
 #define START_POSITION 120
 #define MAX_BLOCKS_NUMBER 100
 #define BACKGROUND_LENGTH 8
 #define FIELD_AVAILABLE 2.3
-#define SAVE_POSITION 400
-#define JUMP_SPEED_Y 10
+#define SAVE_POSITION 100
+#define JUMP_SPEED_X 0
+#define JUMP_SPEED_Y 9
+#define delta_distance 10
+#define dash_k  5
 struct coordinates_t{
 	double x=0;
 	double y=0;
@@ -33,8 +36,6 @@ struct game_object{
 	coordinates_t speed;
 	sizes_t sizes;
 	SDL_Surface* graphics;
-	int is_jump = 0;
-
 };
 struct blocks {
 	game_object blocks_arr[MAX_BLOCKS_NUMBER];
@@ -115,28 +116,84 @@ void DrawRectangle(SDL_Surface *screen, int x, int y, int l, int k,
 		DrawLine(screen, x + 1, i, l - 2, 1, 0, fillColor);
 	};
 
+int jump(game_object *player,int * is_jump) {
+	player->speed.y -= 0.09;
+	if (player->position.y > SCREEN_HEIGHT - player->sizes.height/2) {
+		player->position.y = SCREEN_HEIGHT - player->sizes.height/2;
+		*is_jump = 0;
+		player->speed.y = 0;
+		player->speed.x = 0;
+		return 0;
+	}
+	else  return 1;
+}
+
+int check_collision(game_object object1, game_object object2,int save_distance_x) {
+	if (
+		(object1.position.x + object1.sizes.width/2 + save_distance_x) - (object2.position.x - object2.sizes.width/2) >= 0
+		&& !((object1.position.x - object1.sizes.width/2) - (object2.position.x + object2.sizes.width / 2) >= 0)
+		&& (object1.position.y + object1.sizes.height/2) - (object2.position.y - object1.sizes.height / 2)>= 0
+		&& !((object1.position.y - object1.sizes.height/2) - (object2.position.y + object2.sizes.height/2) >= 0)
+
+		)
+	{
+		return 1;
+
+	}
+	else {
+		return 0;
+	}
+}
 
 // main
 #ifdef __cplusplus
 extern "C"
 #endif
+
+
+void move_gameobject(game_object * object) {
+	object->position.x += object->speed.x;
+	object->position.y -= object->speed.y;
+}
+void draw_gameobject(SDL_Surface* screen, game_object object) {
+	DrawSurface(screen, object.graphics,
+		object.position.x,
+		object.position.y);
+}
+void block_movement(blocks *blocks, SDL_Surface* screen,float a) {
+	//block movement
+	for (int i = 0; i < blocks->length; i++)
+	{
+		blocks->blocks_arr[i].speed.x -= a;
+
+		move_gameobject(&blocks->blocks_arr[i]);
+		draw_gameobject(screen, blocks->blocks_arr[i]);
+	}
+}
+void free_and_destroy(SDL_Surface* screen, SDL_Texture* scrtex, SDL_Window* window, SDL_Renderer* renderer) {
+	SDL_FreeSurface(screen);
+	SDL_DestroyTexture(scrtex);
+	SDL_DestroyWindow(window);
+	SDL_DestroyRenderer(renderer);
+	SDL_Quit();
+}
 int main(int argc, char **argv) {
 
 	int games = 1;
-	int game_mode = 0; // default
 	while (games > 0) {
 
 		int t1, t2, quit, frames, rc;
-		double delta, worldTime, fpsTimer, fps, distance, etiSpeed;
+		double delta, worldTime, fpsTimer, fps, distance, backSpeed;
 		SDL_Event event;
 		SDL_Surface* screen, * charset;
-		SDL_Surface* background;
+		SDL_Surface* background_spr;
 		SDL_Surface* player_sprite;
 		SDL_Surface* block_sprite;
 		SDL_Texture* scrtex;
 		SDL_Window* window;
 		SDL_Renderer* renderer;
-
+		
+		int game_mode = 0; // default
 		// okno konsoli nie jest widoczne, jezeli chcemy zobaczyc
 		// komunikaty wypisywane printf-em trzeba w opcjach:
 		// project -> szablon2 properties -> Linker -> System -> Subsystem
@@ -186,48 +243,29 @@ int main(int argc, char **argv) {
 		charset = SDL_LoadBMP("../szablon2/cs8x8.bmp");
 		if (charset == NULL) {
 			printf("SDL_LoadBMP(cs8x8.bmp) error: %s\n", SDL_GetError());
-			SDL_FreeSurface(screen);
-			SDL_DestroyTexture(scrtex);
-			SDL_DestroyWindow(window);
-			SDL_DestroyRenderer(renderer);
-			SDL_Quit();
+			free_and_destroy(screen, scrtex, window, renderer);
 			return 1;
 		};
 		SDL_SetColorKey(charset, true, 0x000000);
 
-		background = SDL_LoadBMP("../szablon2/background.bmp");
-		if (background == NULL) {
+		background_spr = SDL_LoadBMP("../szablon2/background.bmp");
+		if (background_spr == NULL) {
 			printf("SDL_LoadBMP(background.bmp) error: %s\n", SDL_GetError());
-			SDL_FreeSurface(charset);
-			SDL_FreeSurface(screen);
-			SDL_DestroyTexture(scrtex);
-			SDL_DestroyWindow(window);
-			SDL_DestroyRenderer(renderer);
-			SDL_Quit();
+			free_and_destroy(screen, scrtex, window, renderer);
 			return 1;
 		};
 
 		player_sprite = SDL_LoadBMP("../szablon2/player.bmp");
 		if (player_sprite == NULL) {
 			printf("SDL_LoadBMP(player.bmp) error: %s\n", SDL_GetError());
-			SDL_FreeSurface(charset);
-			SDL_FreeSurface(screen);
-			SDL_DestroyTexture(scrtex);
-			SDL_DestroyWindow(window);
-			SDL_DestroyRenderer(renderer);
-			SDL_Quit();
+			free_and_destroy(screen, scrtex, window, renderer);
 			return 1;
 		};
 
 		block_sprite = SDL_LoadBMP("../szablon2/block.bmp");
 		if (block_sprite == NULL) {
 			printf("SDL_LoadBMP(block.bmp) error: %s\n", SDL_GetError());
-			SDL_FreeSurface(charset);
-			SDL_FreeSurface(screen);
-			SDL_DestroyTexture(scrtex);
-			SDL_DestroyWindow(window);
-			SDL_DestroyRenderer(renderer);
-			SDL_Quit();
+			free_and_destroy(screen, scrtex, window, renderer);
 			return 1;
 		};
 		char text[128];
@@ -244,40 +282,50 @@ int main(int argc, char **argv) {
 		quit = 0;
 		worldTime = 0;
 		distance = 0;
-		etiSpeed = 1;
+		backSpeed = 1;
 		// player 
 		game_object player;
 		player.graphics = player_sprite;
 		player.speed.x = 0;
 		player.speed.y = 0;
-		player.sizes.width = 200;
+		player.sizes.width = 200 ;
 		player.sizes.height = 200;
-		player.position.x = player.sizes.width / 2,
-		player.position.y = SCREEN_HEIGHT - player.sizes.height / 2;
+		player.position.x = player.sizes.width / 2;
+		player.position.y = SCREEN_HEIGHT - player.sizes.height / 2 ;
 		
+		game_object background;
+		background.graphics = background_spr;
+		background.speed.x = -3;
+		background.speed.y = 0;
+		background.sizes.width = 5*SCREEN_WIDTH; // 5*SCREEN_WIDTH
+		background.sizes.height = SCREEN_HEIGHT;
+		background.position.x =  SCREEN_WIDTH * 2.5,
+		background.position.y = SCREEN_HEIGHT/ 2;
 
 		blocks blocks;
-
 		for (int i = 0; i < MAX_BLOCKS_NUMBER; i++)
 		{
 			game_object block;
 			block.graphics = block_sprite;
-			block.sizes.width = 100;
-			block.sizes.height = 100;
-			block.speed.x = 3;
+			block.sizes.width = 200;
+			block.sizes.height = 200;
+			block.speed.x = -3;
 			block.speed.y = 0;
-			block.position.x = SCREEN_WIDTH * 2 + block.sizes.width + i * SCREEN_WIDTH/2;
-			block.position.y = SCREEN_HEIGHT - block.sizes.height;
-
+			block.position.x = SCREEN_WIDTH + block.sizes.width + i * SCREEN_WIDTH  ;
+			block.position.y = SCREEN_HEIGHT - block.sizes.height/2;
 			blocks.blocks_arr[i] = block;
 			blocks.length++;
 		}
 
 		
 
-		
+		int is_jump = 0;
 		int is_jumping = 0;
+		int is_double_jump = 0;
+		int is_dash = 0;
 		int block_index = -1;
+		int time_dash;
+		float a = 0.0001;// acceleration
 		while (!quit) {
 			t2 = SDL_GetTicks();
 
@@ -291,84 +339,83 @@ int main(int argc, char **argv) {
 			delta = (t2 - t1) * 0.001;
 			t1 = t2;
 			worldTime += delta;
-			if (distance + etiSpeed * delta > 0) {
-				distance += etiSpeed * delta;
-				
-			//	printf("%f\n",float(block1.position.x));
-			//	printf("%f\n",float(block1.position.x - player.position.x));
-			//	printf("%f\n",float(playe1));
+			if (distance + backSpeed * delta > 0) {
+				distance += backSpeed * delta;
+
+				//printf("%f\n", player.position.y);
 			}
 			
 
 			SDL_FillRect(screen, NULL, zielony);
+			/*
 			
 			// drawing background
 			if (distance > BACKGROUND_LENGTH) {
 				distance = 0;
 			}
-			DrawSurface(screen, background,
-				SCREEN_WIDTH * 2 - distance * SCREEN_HEIGHT,
-				SCREEN_HEIGHT / 2);
-
-
-			// player movement
-			player.position.x += player.speed.x;
-			player.position.y -= player.speed.y;
-
-
-
+			*/
+			// background movement
+			if (background.position.x < -background.sizes.width/3.5) {
+				background.position.x = SCREEN_WIDTH * 2.5;
+			}
+			move_gameobject(&background);
+			draw_gameobject(screen, background);
+			if (!is_dash) {
+				move_gameobject(&player);
+			}
+			
 			// drawing player
-			DrawSurface(screen, player.graphics,
-				
-				player.position.x,          // + sin(distance) * SCREEN_HEIGHT / 3,
-				player.position.y);        //+ cos(distance) * SCREEN_HEIGHT / 3);
+			draw_gameobject(screen, player);
 
-
-			//block1 movement
-			for (int i = 0; i < blocks.length; i++)
-			{
-				blocks.blocks_arr[i].position.x -= blocks.blocks_arr[i].speed.x;
-				blocks.blocks_arr[i].position.y += blocks.blocks_arr[i].speed.y;
-			}
-			
-			for (int i = 0; i < blocks.length; i++)
-			{
-				DrawSurface(screen, blocks.blocks_arr[i].graphics,
-					blocks.blocks_arr[i].position.x,
-					blocks.blocks_arr[i].position.y);
-			}
+			background.speed.x -= a;
+			//block movement
+			block_movement(&blocks, screen, a);
 			// check jump
-			
-
-			for (int i = 0; i < blocks.length; i++)
-			{	
-				double difference = blocks.blocks_arr[i].position.x - player.position.x;
-				if (difference <= SAVE_POSITION && difference > 0 && is_jumping == 0 && game_mode == 0) {
-					player.is_jump = 1;
-					player.speed.y = JUMP_SPEED_Y;
-					is_jumping = 1;
-					block_index = i;
-				}
-			}
-			// jumping 
-			if (player.is_jump) {
-				player.speed.y -= 0.09;
-				if (player.position.y > SCREEN_HEIGHT - blocks.blocks_arr[block_index].sizes.height) {
-					player.position.y = SCREEN_HEIGHT - blocks.blocks_arr[block_index].sizes.height;
-					player.is_jump = 0;
-					player.speed.y = 0;
-					player.speed.x = 0;
+			if (game_mode == 0) {
+				for (int i = 0; i < blocks.length; i++)
+				{
 					
-					is_jumping = 0;
+					if (check_collision(player, blocks.blocks_arr[i], SAVE_POSITION) && is_jumping == 0 && game_mode == 0) {
+						is_jump = 1;
+						player.speed.x = JUMP_SPEED_X;
+						player.speed.y = JUMP_SPEED_Y;
+						is_jumping = 1;
+						block_index = i;
+					}
 				}
-
+				// jumping 
+				if (is_jump) {
+					is_jumping = jump(&player,&is_jump);
+				}
+			}
+			if (game_mode == 1 && is_jump) {
+				is_jumping = jump(&player, &is_jump);
+				if (!is_jumping) {
+					is_double_jump = 0;
+				}
+			}
+			for (int i = 0; i < blocks.length; i++)
+			{
+				//check collision
+				if (check_collision(player, blocks.blocks_arr[i],0)) {
+					quit = 1;
+					games++;
+				}
+				
+			}
+			if (is_dash) {
+				int time_dash1 = SDL_GetTicks();
+				if (time_dash1 - time_dash > 200) {
+					background.speed.x /= dash_k;
+					is_dash = 0;
+					for (int i = 0; i < blocks.length; i++)
+					{
+						blocks.blocks_arr[i].speed.x /= dash_k;
+					}
+				}
 			}
 
 
-
-
-
-			
 			fpsTimer += delta;
 			if (fpsTimer > 0.5) {
 				fps = frames * 2;
@@ -398,8 +445,8 @@ int main(int argc, char **argv) {
 						quit = 1;
 						games --;
 					}
-					else if (event.key.keysym.sym == SDLK_RIGHT) etiSpeed = 3.0;
-					else if (event.key.keysym.sym == SDLK_LEFT) etiSpeed = -3.0;
+					else if (event.key.keysym.sym == SDLK_RIGHT) backSpeed = 3.0;
+					else if (event.key.keysym.sym == SDLK_LEFT) backSpeed = -3.0;
 					else if (event.key.keysym.sym == 'n')
 					{
 						printf("n -pressed\n");
@@ -414,9 +461,38 @@ int main(int argc, char **argv) {
 						else
 							game_mode = 0;
 					}
+					else if (event.key.keysym.sym == 'z' && game_mode == 1)
+					{		
+						if (!is_double_jump) {
+							if (is_jumping) {
+								is_double_jump = 1;
+							}
+							is_jump = 1;
+							player.speed.x = JUMP_SPEED_X;
+							player.speed.y = JUMP_SPEED_Y;
+							is_jumping = 1;
+						}
+					}
+					else if (event.key.keysym.sym == 'x' && game_mode == 1)
+					{	
+						
+						if (!is_dash) {
+							time_dash = SDL_GetTicks();
+							background.speed.x *= dash_k;
+							is_dash = 1;
+							for (int i = 0; i < blocks.length; i++)
+							{
+								blocks.blocks_arr[i].speed.x *= dash_k;
+							}
+						}
+			
+						
+						
+
+					}
 					break;
 				case SDL_KEYUP:
-					etiSpeed = 1; // bylo 1.0 
+					backSpeed = 1; // bylo 1.0 
 					break;
 				case SDL_QUIT:
 					quit = 1;
